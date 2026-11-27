@@ -1,0 +1,2320 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>BenzeneLab — ベンゼン環 手書き採点・添削スタジオ</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Google Fonts: Inter & Noto Sans JP -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+JP:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['"Inter"', '"Noto Sans JP"', 'sans-serif'],
+          },
+        },
+      },
+    };
+  </script>
+  <style>
+    /* 基本設定とタッチスクロール防止 */
+    body {
+      font-family: 'Inter', 'Noto Sans JP', sans-serif;
+      background-color: #f8fafc;
+      color: #0f172a;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    #drawCanvas {
+      touch-action: none;
+      cursor: crosshair;
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+
+    /* ラボノート風の微細な方眼背景 */
+    .lab-paper-bg {
+      background-color: #ffffff;
+      background-image:
+        radial-gradient(#cbd5e1 0.75px, transparent 0.75px);
+      background-size: 20px 20px;
+    }
+
+    /* スコアバーの滑らかなアニメーション */
+    .score-bar-fill {
+      transition: width 0.65s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    /* カスタムスクロールバー */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #f1f5f9;
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #94a3b8;
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col selection:bg-indigo-100 selection:text-indigo-900">
+
+  <!-- トースト通知（alert()の代替） -->
+  <div id="toastContainer" class="fixed top-4 left-1/2 -translate-x-1/2 z-50 pointer-events-none flex flex-col items-center gap-2 w-full max-w-md px-4"></div>
+
+  <!-- ヘッダー -->
+  <header class="bg-white/90 backdrop-blur-md border-b border-slate-200 sticky top-0 z-30">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
+      <div class="flex items-center gap-3">
+        <!-- ベンゼン環ロゴSVG -->
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-600 to-emerald-500 flex items-center justify-center text-white shadow-sm shrink-0">
+          <svg class="w-6 h-6" viewBox="0 0 36 36" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="18,4 30,11 30,25 18,32 6,25 6,11" />
+            <line x1="18" y1="8.5" x2="26" y2="13.2" />
+            <line x1="26" y1="22.8" x2="18" y2="27.5" />
+            <line x1="10" y1="22.8" x2="10" y2="13.2" />
+          </svg>
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="text-base sm:text-lg font-bold tracking-tight text-slate-900">BenzeneLab</h1>
+            <span class="hidden sm:inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-100">
+              幾何学・構造解析エンジン
+            </span>
+          </div>
+          <p class="text-xs text-slate-500">手書きベンゼン環 精密採点＆添削スタジオ</p>
+        </div>
+      </div>
+
+      <!-- ベストスコア表示 -->
+      <div class="flex items-center gap-2 sm:gap-3">
+        <div class="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5">
+          <span class="text-xs font-medium text-slate-500">BEST</span>
+          <span id="bestScoreDisplay" class="text-sm sm:text-base font-extrabold text-indigo-600 tabular-nums">--</span>
+          <span class="text-xs text-slate-400">点</span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- メインコンテンツ -->
+  <main class="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 py-4 sm:py-6">
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-5 lg:gap-6 items-start">
+
+      <!-- 左カラム：描画キャンバス＆操作ツール（7カラム） -->
+      <section class="lg:col-span-7 flex flex-col gap-3.5">
+
+        <!-- モード＆向き切替バー -->
+        <div class="bg-white rounded-2xl border border-slate-200/90 p-2.5 sm:p-3 shadow-sm flex flex-wrap items-center justify-between gap-2.5">
+          <!-- 表記モード選択 -->
+          <div class="flex items-center gap-1 bg-slate-100 p-1 rounded-xl overflow-x-auto max-w-full" role="group" aria-label="表記モード">
+            <button type="button" data-mode="auto" class="mode-btn px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold transition-all bg-white text-indigo-700 shadow-sm whitespace-nowrap">
+              自動判定
+            </button>
+            <button type="button" data-mode="kekule" class="mode-btn px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold transition-all text-slate-600 hover:text-slate-900 whitespace-nowrap">
+              ケクレ構造 (二重線)
+            </button>
+            <button type="button" data-mode="circle" class="mode-btn px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold transition-all text-slate-600 hover:text-slate-900 whitespace-nowrap">
+              円表記 (○)
+            </button>
+            <button type="button" data-mode="skeleton" class="mode-btn px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold transition-all text-slate-600 hover:text-slate-900 whitespace-nowrap">
+              骨格練習 (六角形)
+            </button>
+          </div>
+
+          <!-- お手本・ガイドの向き -->
+          <div class="flex items-center gap-1.5 ml-auto sm:ml-0">
+            <span class="text-[11px] font-medium text-slate-400 hidden sm:inline">向き基準:</span>
+            <div class="flex items-center bg-slate-100 p-1 rounded-xl">
+              <button type="button" data-orient="vertical" class="orient-btn px-2.5 py-1 rounded-lg text-xs font-semibold bg-white text-slate-800 shadow-sm transition-all">
+                縦型
+              </button>
+              <button type="button" data-orient="horizontal" class="orient-btn px-2.5 py-1 rounded-lg text-xs font-semibold text-slate-600 hover:text-slate-900 transition-all">
+                横型
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- キャンバス本体カード -->
+        <div class="relative bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <!-- キャンバス上部フローティングバー -->
+          <div class="absolute top-3 left-3 right-3 z-10 flex items-center justify-between gap-2 pointer-events-none">
+            <!-- ステータスバッジ -->
+            <div id="canvasStatusBadge" class="pointer-events-auto inline-flex items-center gap-2 bg-white/90 backdrop-blur-sm border border-slate-200/80 rounded-xl px-3 py-1.5 shadow-sm">
+              <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              <span id="strokeCountText" class="text-xs font-medium text-slate-600">0画 · ペン/タッチ対応</span>
+            </div>
+
+            <!-- 診断オーバーレイON/OFFトグル（採点後に表示） -->
+            <div id="overlayToggleWrapper" class="hidden pointer-events-auto items-center gap-1.5 bg-white/95 backdrop-blur-sm border border-slate-200 rounded-xl p-1 shadow-sm">
+              <button type="button" id="toggleOverlayBtn" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 transition-all">
+                <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                  <circle cx="12" cy="12" r="3" />
+                </svg>
+                <span>添削オーバーレイ: ON</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- 書き順アニメーション中の解説バナー -->
+          <div id="animBanner" class="hidden absolute bottom-3 left-3 right-3 z-10 bg-slate-900/90 backdrop-blur-md text-white rounded-xl px-4 py-2.5 shadow-lg flex items-center justify-between gap-3">
+            <div class="flex items-center gap-2.5">
+              <span id="animStepBadge" class="px-2 py-0.5 rounded-md bg-indigo-500 text-xs font-bold">STEP 1</span>
+              <span id="animStepText" class="text-xs sm:text-sm font-medium">上の屋根（^）を左右対称に書きます</span>
+            </div>
+            <button type="button" id="stopAnimBtn" class="text-xs text-slate-300 hover:text-white underline shrink-0">閉じる</button>
+          </div>
+
+          <!-- 描画エリア -->
+          <div id="canvasContainer" class="w-full h-[350px] sm:h-[430px] lg:h-[460px] lab-paper-bg relative">
+            <canvas id="drawCanvas"></canvas>
+          </div>
+        </div>
+
+        <!-- ツールバー（編集・補助ガイド・書き順・採点ボタン） -->
+        <div class="bg-white rounded-2xl border border-slate-200/90 p-3 shadow-sm flex flex-col gap-3">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <!-- Undo / Redo / Clear -->
+            <div class="flex items-center gap-1.5">
+              <button type="button" id="undoBtn" disabled class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:pointer-events-none transition-all" title="1画戻る">
+                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M3 7v6h6" /><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13" />
+                </svg>
+                <span>戻る</span>
+              </button>
+              <button type="button" id="redoBtn" disabled class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:pointer-events-none transition-all" title="やり直し">
+                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 7v6h-6" /><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3L21 13" />
+                </svg>
+                <span>やり直し</span>
+              </button>
+              <button type="button" id="clearBtn" class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold border border-rose-200 bg-rose-50/60 text-rose-700 hover:bg-rose-100/70 transition-all" title="全消去">
+                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" />
+                </svg>
+                <span>全消去</span>
+              </button>
+            </div>
+
+            <!-- 書き順アニメーションボタン -->
+            <button type="button" id="playOrderBtn" class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold border border-indigo-200 bg-indigo-50/70 text-indigo-700 hover:bg-indigo-100/80 transition-all">
+              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <polygon points="5 3 19 12 5 21 5 3" />
+              </svg>
+              <span>書き順アニメーション再生</span>
+            </button>
+          </div>
+
+          <!-- 下段：補助ガイド選択 & 採点実行ボタン -->
+          <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 pt-2 border-t border-slate-100">
+            <!-- 補助ガイド切替 -->
+            <div class="flex items-center gap-1.5 overflow-x-auto pb-0.5 sm:pb-0">
+              <span class="text-[11px] font-semibold text-slate-400 shrink-0">補助線:</span>
+              <button type="button" data-guide="none" class="guide-btn px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-800 text-white transition-all whitespace-nowrap">
+                なし
+              </button>
+              <button type="button" data-guide="ruled" class="guide-btn px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200/70 transition-all whitespace-nowrap">
+                横罫線ノート
+              </button>
+              <button type="button" data-guide="dots" class="guide-btn px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200/70 transition-all whitespace-nowrap">
+                ドット
+              </button>
+              <button type="button" data-guide="trace" class="guide-btn px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200/70 transition-all whitespace-nowrap">
+                うすいお手本
+              </button>
+            </div>
+
+            <!-- 採点実行メインボタン -->
+            <button type="button" id="scoreBtn" class="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-indigo-600 to-emerald-600 hover:from-indigo-500 hover:to-emerald-500 shadow-md shadow-indigo-500/20 active:scale-[0.99] transition-all shrink-0">
+              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              <span>採点・添削する</span>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- 右カラム：採点スコアカード＆添削アドバイス＆履歴（5カラム） -->
+      <section class="lg:col-span-5 flex flex-col gap-4">
+
+        <!-- 採点前ガイドカード（初期表示） -->
+        <div id="emptyScorePanel" class="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-sm">
+          <div class="flex items-center gap-2.5 mb-3">
+            <span class="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-sm">i</span>
+            <h2 class="text-base font-bold text-slate-900">きれいに書く＆高得点のコツ</h2>
+          </div>
+          <p class="text-xs sm:text-sm text-slate-600 leading-relaxed mb-4">
+            一筆書きでも、パーツ分け書きでも高精度に自動認識します。次の3ステップで描くと正六角形のバランスが整いやすくなります。
+          </p>
+
+          <div class="space-y-2.5 mb-5">
+            <div class="flex items-start gap-3 p-3 rounded-xl bg-slate-50 border border-slate-100">
+              <span class="w-6 h-6 rounded-full bg-indigo-600 text-white text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">1</span>
+              <div>
+                <p class="text-xs font-bold text-slate-800">上の屋根（^）を書く</p>
+                <p class="text-[11px] text-slate-500">頂点を120°に開き、左右の傾きをそろえます。</p>
+              </div>
+            </div>
+            <div class="flex items-start gap-3 p-3 rounded-xl bg-slate-50 border border-slate-100">
+              <span class="w-6 h-6 rounded-full bg-indigo-600 text-white text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">2</span>
+              <div>
+                <p class="text-xs font-bold text-slate-800">左右の柱（|　|）を垂直に下ろす</p>
+                <p class="text-[11px] text-slate-500">2本の縦線を平行・同じ長さにすると全体が安定します。</p>
+              </div>
+            </div>
+            <div class="flex items-start gap-3 p-3 rounded-xl bg-slate-50 border border-slate-100">
+              <span class="w-6 h-6 rounded-full bg-indigo-600 text-white text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">3</span>
+              <div>
+                <p class="text-xs font-bold text-slate-800">底（v）を閉じ、二重結合を1つおきに3本</p>
+                <p class="text-[11px] text-slate-500">内側の二重線は外辺より少し短く・平行に配置します。</p>
+              </div>
+            </div>
+          </div>
+
+          <button type="button" id="loadSampleBtn" class="w-full py-2.5 px-4 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-xs font-semibold text-slate-700 transition-all flex items-center justify-center gap-2">
+            <span>お手本サンプルを描画して採点を試す</span>
+          </button>
+        </div>
+
+        <!-- 採点結果パネル（採点後に表示） -->
+        <div id="resultScorePanel" class="hidden bg-white rounded-2xl border border-slate-200 p-5 shadow-sm flex flex-col gap-5">
+          <!-- 総合スコア＆ランクヘッダー -->
+          <div class="flex items-center justify-between gap-4 pb-4 border-b border-slate-100">
+            <div>
+              <div class="flex flex-wrap items-center gap-1.5 mb-1.5">
+                <span id="detectedTypeBadge" class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-100">
+                  ケクレ構造
+                </span>
+                <span id="detectedOrientBadge" class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-700">
+                  縦型
+                </span>
+                <span id="tiltReadoutBadge" class="px-2.5 py-0.5 rounded-full text-[11px] font-mono font-semibold bg-slate-100 text-slate-700">
+                  傾き 0.0°
+                </span>
+              </div>
+              <div class="flex items-baseline gap-1.5">
+                <span id="totalScoreNum" class="text-4xl sm:text-5xl font-extrabold tracking-tight text-slate-900 tabular-nums">0</span>
+                <span class="text-sm font-semibold text-slate-400">/ 100 点</span>
+              </div>
+              <p id="rankHeadline" class="text-xs sm:text-sm font-semibold text-emerald-600 mt-1">素晴らしいバランスです！</p>
+            </div>
+
+            <!-- ランクバッジ -->
+            <div id="rankBadgeBox" class="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white flex flex-col items-center justify-center shadow-md shrink-0">
+              <span class="text-[10px] font-bold tracking-widest opacity-85">RANK</span>
+              <span id="rankLetter" class="text-3xl sm:text-4xl font-black leading-none mt-0.5">S</span>
+            </div>
+          </div>
+
+          <!-- 5項目別スコアバー -->
+          <div class="space-y-3">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400">項目別評価（100点満点）</h3>
+
+            <!-- 1. 対称性・辺の均一性 (25) -->
+            <div>
+              <div class="flex justify-between text-xs font-semibold mb-1">
+                <span class="text-slate-700">1. 正六角形の対称性・辺の長さの均一性</span>
+                <span class="tabular-nums text-slate-900"><span id="scSym">0</span> <span class="text-slate-400 font-normal">/ 25</span></span>
+              </div>
+              <div class="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                <div id="barSym" class="score-bar-fill h-full bg-indigo-600 rounded-full" style="width: 0%"></div>
+              </div>
+            </div>
+
+            <!-- 2. 内角の正確さ (20) -->
+            <div>
+              <div class="flex justify-between text-xs font-semibold mb-1">
+                <span class="text-slate-700">2. 内角の正確さ（理想 120°）</span>
+                <span class="tabular-nums text-slate-900"><span id="scAng">0</span> <span class="text-slate-400 font-normal">/ 20</span></span>
+              </div>
+              <div class="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                <div id="barAng" class="score-bar-fill h-full bg-indigo-600 rounded-full" style="width: 0%"></div>
+              </div>
+            </div>
+
+            <!-- 3. 傾き・水平垂直の姿勢 (15) -->
+            <div>
+              <div class="flex justify-between text-xs font-semibold mb-1">
+                <span class="text-slate-700">3. 傾き・水平垂直の姿勢</span>
+                <span class="tabular-nums text-slate-900"><span id="scTilt">0</span> <span class="text-slate-400 font-normal">/ 15</span></span>
+              </div>
+              <div class="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                <div id="barTilt" class="score-bar-fill h-full bg-indigo-600 rounded-full" style="width: 0%"></div>
+              </div>
+            </div>
+
+            <!-- 4. 角の閉じ具合・線の丁寧さ (15) -->
+            <div>
+              <div class="flex justify-between text-xs font-semibold mb-1">
+                <span class="text-slate-700">4. 角の閉じ具合・線の丁寧さ</span>
+                <span class="tabular-nums text-slate-900"><span id="scNeat">0</span> <span class="text-slate-400 font-normal">/ 15</span></span>
+              </div>
+              <div class="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                <div id="barNeat" class="score-bar-fill h-full bg-indigo-600 rounded-full" style="width: 0%"></div>
+              </div>
+            </div>
+
+            <!-- 5. 内部構造の正確さ (25) -->
+            <div>
+              <div class="flex justify-between text-xs font-semibold mb-1">
+                <span id="innerScoreLabel" class="text-slate-700">5. 内部構造の正確さ（二重結合3本）</span>
+                <span class="tabular-nums text-slate-900"><span id="scInner">0</span> <span class="text-slate-400 font-normal">/ 25</span></span>
+              </div>
+              <div class="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                <div id="barInner" class="score-bar-fill h-full bg-emerald-500 rounded-full" style="width: 0%"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 具体的な日本語添削アドバイス -->
+          <div class="pt-3 border-t border-slate-100">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2.5">精密添削レポート・アドバイス</h3>
+            <ul id="feedbackList" class="space-y-2"></ul>
+          </div>
+        </div>
+
+        <!-- スコア履歴パネル -->
+        <div class="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500">採点履歴（ローカル保存）</h3>
+            <button type="button" id="clearHistoryBtn" class="text-[11px] font-medium text-slate-400 hover:text-rose-600 transition-colors">
+              履歴をクリア
+            </button>
+          </div>
+          <div id="historyList" class="flex items-center gap-2.5 overflow-x-auto pb-1 min-h-[76px]">
+            <p class="text-xs text-slate-400 py-4 text-center w-full">まだ採点履歴がありません。描いて採点してみましょう！</p>
+          </div>
+        </div>
+
+      </section>
+    </div>
+  </main>
+
+  <script>
+    /**
+     * =========================================================================
+     * BenzeneLab: 高精度ベンゼン環 手書き認識・幾何学採点エンジン & UI
+     * =========================================================================
+     */
+
+    // --- 状態管理 ---
+    const state = {
+      strokes: [],          // 描画ストローク配列: Array<Array<{x, y, pressure}>>
+      redoStack: [],        // Redo用スタック
+      currentStroke: null,  // 現在描画中のストローク
+      isDrawing: false,
+      mode: 'auto',         // 'auto' | 'kekule' | 'circle' | 'skeleton'
+      orientation: 'vertical', // 'vertical' (頂点が上下) | 'horizontal' (辺が上下)
+      guide: 'none',        // 'none' | 'ruled' | 'dots' | 'trace'
+      lastResult: null,     // 最新の解析結果オブジェクト
+      showOverlay: true,    // 診断オーバーレイ表示フラグ
+      isAnimating: false,   // 書き順アニメーション再生中フラグ
+      animTimer: null,
+      history: [],          // 採点履歴
+      bestScore: null,
+    };
+
+    // --- DOM要素取得 ---
+    const canvas = document.getElementById('drawCanvas');
+    const ctx = canvas.getContext('2d');
+    const canvasContainer = document.getElementById('canvasContainer');
+    const strokeCountText = document.getElementById('strokeCountText');
+    const undoBtn = document.getElementById('undoBtn');
+    const redoBtn = document.getElementById('redoBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const scoreBtn = document.getElementById('scoreBtn');
+    const playOrderBtn = document.getElementById('playOrderBtn');
+    const stopAnimBtn = document.getElementById('stopAnimBtn');
+    const animBanner = document.getElementById('animBanner');
+    const animStepBadge = document.getElementById('animStepBadge');
+    const animStepText = document.getElementById('animStepText');
+    const overlayToggleWrapper = document.getElementById('overlayToggleWrapper');
+    const toggleOverlayBtn = document.getElementById('toggleOverlayBtn');
+    const emptyScorePanel = document.getElementById('emptyScorePanel');
+    const resultScorePanel = document.getElementById('resultScorePanel');
+    const loadSampleBtn = document.getElementById('loadSampleBtn');
+    const historyList = document.getElementById('historyList');
+    const clearHistoryBtn = document.getElementById('clearHistoryBtn');
+    const bestScoreDisplay = document.getElementById('bestScoreDisplay');
+
+    const STORAGE_KEY = 'benzenelab_history_v1';
+
+    // --- トースト通知ユーティリティ ---
+    function showToast(message, type = 'info') {
+      const container = document.getElementById('toastContainer');
+      const el = document.createElement('div');
+      const colors = {
+        info: 'bg-slate-900 text-white border-slate-700',
+        warn: 'bg-amber-600 text-white border-amber-500',
+        success: 'bg-emerald-600 text-white border-emerald-500',
+      };
+      el.className = `px-4 py-2.5 rounded-xl text-xs sm:text-sm font-semibold shadow-lg border ${colors[type] || colors.info} transition-all duration-300 opacity-0 translate-y-2`;
+      el.textContent = message;
+      container.appendChild(el);
+      requestAnimationFrame(() => {
+        el.classList.remove('opacity-0', 'translate-y-2');
+      });
+      setTimeout(() => {
+        el.classList.add('opacity-0', '-translate-y-2');
+        setTimeout(() => el.remove(), 300);
+      }, 2800);
+    }
+
+    // --- キャンバスサイズと高DPI対応 ---
+    let canvasWidth = 600;
+    let canvasHeight = 420;
+
+    function resizeCanvas() {
+      const rect = canvasContainer.getBoundingClientRect();
+      const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+      canvasWidth = rect.width;
+      canvasHeight = rect.height;
+      canvas.width = Math.round(canvasWidth * dpr);
+      canvas.height = Math.round(canvasHeight * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      renderCanvas();
+    }
+
+    window.addEventListener('resize', resizeCanvas);
+
+    // --- 補助ガイドの描画 ---
+    function drawBackgroundGuide() {
+      const cx = canvasWidth / 2;
+      const cy = canvasHeight / 2;
+      const R = Math.min(canvasWidth, canvasHeight) * 0.34;
+
+      if (state.guide === 'ruled') {
+        // ノートの横罫線ガイド（上下頂点と柱の基準線4本）
+        const yTop = cy - R;
+        const yMidTop = cy - R * 0.5;
+        const yMidBot = cy + R * 0.5;
+        const yBot = cy + R;
+
+        ctx.save();
+        const lines = [
+          { y: yTop, label: '上の頂点ライン', dash: [6, 4], color: 'rgba(99, 102, 241, 0.35)' },
+          { y: yMidTop, label: '縦線（上端）', dash: [], color: 'rgba(99, 102, 241, 0.25)' },
+          { y: yMidBot, label: '縦線（下端）', dash: [], color: 'rgba(99, 102, 241, 0.25)' },
+          { y: yBot, label: '下の頂点ライン', dash: [6, 4], color: 'rgba(99, 102, 241, 0.35)' },
+        ];
+        ctx.font = '500 10px "Noto Sans JP", sans-serif';
+        lines.forEach((ln) => {
+          ctx.beginPath();
+          ctx.setLineDash(ln.dash);
+          ctx.strokeStyle = ln.color;
+          ctx.lineWidth = 1.2;
+          ctx.moveTo(24, ln.y);
+          ctx.lineTo(canvasWidth - 24, ln.y);
+          ctx.stroke();
+
+          ctx.fillStyle = 'rgba(99, 102, 241, 0.55)';
+          ctx.fillText(ln.label, 28, ln.y - 4);
+        });
+
+        // 縦型の場合は左右の柱の位置もうっすら表示
+        if (state.orientation === 'vertical') {
+          const dx = R * Math.cos(Math.PI / 6);
+          ctx.setLineDash([4, 4]);
+          ctx.strokeStyle = 'rgba(16, 185, 129, 0.22)';
+          [cx - dx, cx + dx].forEach((vx) => {
+            ctx.beginPath();
+            ctx.moveTo(vx, yTop - 10);
+            ctx.lineTo(vx, yBot + 10);
+            ctx.stroke();
+          });
+        }
+        ctx.restore();
+      } else if (state.guide === 'dots') {
+        // 正六角形頂点ドット＆中心ドット
+        ctx.save();
+        const baseAngle = state.orientation === 'vertical' ? -Math.PI / 2 : 0;
+        // 中心点
+        ctx.fillStyle = 'rgba(148, 163, 184, 0.5)';
+        ctx.beginPath();
+        ctx.arc(cx, cy, 3, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 6頂点ドット
+        for (let i = 0; i < 6; i++) {
+          const ang = baseAngle + (i * Math.PI) / 3;
+          const vx = cx + R * Math.cos(ang);
+          const vy = cy + R * Math.sin(ang);
+          ctx.fillStyle = 'rgba(79, 70, 229, 0.45)';
+          ctx.beginPath();
+          ctx.arc(vx, vy, 4.5, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.strokeStyle = 'rgba(79, 70, 229, 0.2)';
+          ctx.lineWidth = 1.2;
+          ctx.beginPath();
+          ctx.arc(vx, vy, 9, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        ctx.restore();
+      } else if (state.guide === 'trace') {
+        // うすい正六角形お手本
+        ctx.save();
+        const baseAngle = state.orientation === 'vertical' ? -Math.PI / 2 : 0;
+        ctx.strokeStyle = 'rgba(99, 102, 241, 0.22)';
+        ctx.lineWidth = 4;
+        ctx.lineJoin = 'round';
+        ctx.lineCap = 'round';
+
+        ctx.beginPath();
+        for (let i = 0; i < 6; i++) {
+          const ang = baseAngle + (i * Math.PI) / 3;
+          const vx = cx + R * Math.cos(ang);
+          const vy = cy + R * Math.sin(ang);
+          if (i === 0) ctx.moveTo(vx, vy);
+          else ctx.lineTo(vx, vy);
+        }
+        ctx.closePath();
+        ctx.stroke();
+
+        // モードに応じた内部構造お手本
+        const effectiveMode = state.mode === 'auto' ? 'kekule' : state.mode;
+        if (effectiveMode === 'kekule') {
+          const bondIndices = state.orientation === 'vertical' ? [0, 2, 4] : [1, 3, 5];
+          bondIndices.forEach((edgeIdx) => {
+            const a1 = baseAngle + (edgeIdx * Math.PI) / 3;
+            const a2 = baseAngle + ((edgeIdx + 1) * Math.PI) / 3;
+            const p1 = { x: cx + R * Math.cos(a1), y: cy + R * Math.sin(a1) };
+            const p2 = { x: cx + R * Math.cos(a2), y: cy + R * Math.sin(a2) };
+            const inner = computeInnerBondSegment(p1, p2, { x: cx, y: cy }, R * 0.2, 0.7);
+            ctx.beginPath();
+            ctx.moveTo(inner.p1.x, inner.p1.y);
+            ctx.lineTo(inner.p2.x, inner.p2.y);
+            ctx.stroke();
+          });
+        } else if (effectiveMode === 'circle') {
+          ctx.beginPath();
+          ctx.arc(cx, cy, R * 0.56, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+    }
+
+    // --- 筆圧対応の滑らかなストローク描画 ---
+    function drawStroke(stroke, color = '#0f172a', baseWidth = 3.2) {
+      if (!stroke || stroke.length === 0) return;
+      ctx.save();
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.strokeStyle = color;
+      ctx.fillStyle = color;
+
+      if (stroke.length === 1) {
+        const r = (baseWidth * (0.65 + (stroke[0].pressure || 0.5) * 0.7)) / 2;
+        ctx.beginPath();
+        ctx.arc(stroke[0].x, stroke[0].y, r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+        return;
+      }
+
+      for (let i = 1; i < stroke.length; i++) {
+        const p0 = stroke[i - 1];
+        const p1 = stroke[i];
+        const p2 = stroke[i + 1] || p1;
+
+        const mid1 = { x: (p0.x + p1.x) / 2, y: (p0.y + p1.y) / 2 };
+        const mid2 = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+
+        const press = p1.pressure !== undefined ? p1.pressure : 0.5;
+        ctx.lineWidth = baseWidth * (0.65 + press * 0.75);
+
+        ctx.beginPath();
+        ctx.moveTo(i === 1 ? p0.x : mid1.x, i === 1 ? p0.y : mid1.y);
+        ctx.quadraticCurveTo(p1.x, p1.y, i === stroke.length - 1 ? p1.x : mid2.x, i === stroke.length - 1 ? p1.y : mid2.y);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    // --- 診断オーバーレイ描画（添削ビュー） ---
+    function drawDiagnosticOverlay(res) {
+      if (!res || !state.showOverlay) return;
+      ctx.save();
+
+      const { center, idealVertices, detectedVertices, vertexAngles, issueMarkers, innerAnalysis } = res;
+
+      // 1. 理想正六角形の破線ガイド
+      ctx.beginPath();
+      ctx.setLineDash([6, 5]);
+      ctx.strokeStyle = 'rgba(6, 182, 212, 0.75)';
+      ctx.lineWidth = 2;
+      idealVertices.forEach((v, i) => {
+        if (i === 0) ctx.moveTo(v.x, v.y);
+        else ctx.lineTo(v.x, v.y);
+      });
+      ctx.closePath();
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // 中心十字マーカー
+      ctx.strokeStyle = 'rgba(6, 182, 212, 0.55)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(center.x - 6, center.y);
+      ctx.lineTo(center.x + 6, center.y);
+      ctx.moveTo(center.x, center.y - 6);
+      ctx.lineTo(center.x, center.y + 6);
+      ctx.stroke();
+
+      // 2. 内部構造の理想ガイド（ケクレまたは円）
+      if (innerAnalysis) {
+        if (innerAnalysis.type === 'kekule' && innerAnalysis.idealBonds) {
+          ctx.save();
+          ctx.setLineDash([4, 4]);
+          ctx.strokeStyle = 'rgba(16, 185, 129, 0.65)';
+          ctx.lineWidth = 2;
+          innerAnalysis.idealBonds.forEach((b) => {
+            ctx.beginPath();
+            ctx.moveTo(b.p1.x, b.p1.y);
+            ctx.lineTo(b.p2.x, b.p2.y);
+            ctx.stroke();
+          });
+          ctx.restore();
+        } else if (innerAnalysis.type === 'circle' && innerAnalysis.idealRadius) {
+          ctx.save();
+          ctx.setLineDash([4, 4]);
+          ctx.strokeStyle = 'rgba(16, 185, 129, 0.65)';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(center.x, center.y, innerAnalysis.idealRadius, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.restore();
+        }
+      }
+
+      // 3. 問題箇所の警告リング（隙間・突き抜け・二重結合ズレ）
+      issueMarkers.forEach((m) => {
+        ctx.save();
+        ctx.beginPath();
+        ctx.setLineDash([3, 3]);
+        ctx.strokeStyle = 'rgba(239, 68, 68, 0.9)';
+        ctx.fillStyle = 'rgba(239, 68, 68, 0.12)';
+        ctx.lineWidth = 2;
+        ctx.arc(m.x, m.y, m.r || 16, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        if (m.label) {
+          ctx.font = 'bold 10px "Noto Sans JP", sans-serif';
+          const tw = ctx.measureText(m.label).width;
+          ctx.fillStyle = '#ef4444';
+          roundRectPath(ctx, m.x - tw / 2 - 5, m.y - (m.r || 16) - 18, tw + 10, 15, 5);
+          ctx.fill();
+          ctx.fillStyle = '#ffffff';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(m.label, m.x, m.y - (m.r || 16) - 10.5);
+        }
+        ctx.restore();
+      });
+
+      // 4. 各頂点の内角バッジ（緑・黄・赤）
+      detectedVertices.forEach((v, idx) => {
+        const ang = vertexAngles[idx];
+        const diff = Math.abs(ang - 120);
+        let bg = '#10b981'; // 緑（誤差5°以内）
+        if (diff > 12) bg = '#ef4444'; // 赤（12°超）
+        else if (diff > 5) bg = '#f59e0b'; // 黄（5〜12°）
+
+        // 頂点ドット
+        ctx.fillStyle = bg;
+        ctx.beginPath();
+        ctx.arc(v.x, v.y, 4.5, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 外側方向にオフセットしてラベル配置
+        const vx = v.x - center.x;
+        const vy = v.y - center.y;
+        const vLen = Math.hypot(vx, vy) || 1;
+        const lx = Math.max(26, Math.min(canvasWidth - 26, v.x + (vx / vLen) * 22));
+        const ly = Math.max(16, Math.min(canvasHeight - 16, v.y + (vy / vLen) * 20));
+
+        const text = `${Math.round(ang)}°`;
+        ctx.font = 'bold 11px "Inter", sans-serif';
+        const w = ctx.measureText(text).width + 10;
+        const h = 18;
+
+        ctx.fillStyle = bg;
+        roundRectPath(ctx, lx - w / 2, ly - h / 2, w, h, 6);
+        ctx.fill();
+
+        ctx.fillStyle = '#ffffff';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(text, lx, ly + 0.5);
+      });
+
+      ctx.restore();
+    }
+
+    function roundRectPath(context, x, y, w, h, r) {
+      context.beginPath();
+      context.moveTo(x + r, y);
+      context.lineTo(x + w - r, y);
+      context.quadraticCurveTo(x + w, y, x + w, y + r);
+      context.lineTo(x + w, y + h - r);
+      context.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+      context.lineTo(x + r, y + h);
+      context.quadraticCurveTo(x, y + h, x, y + h - r);
+      context.lineTo(x, y + r);
+      context.quadraticCurveTo(x, y, x + r, y);
+      context.closePath();
+    }
+
+    // --- 全体再描画 ---
+    function renderCanvas() {
+      ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+      drawBackgroundGuide();
+
+      state.strokes.forEach((st) => drawStroke(st, '#0f172a', 3.2));
+      if (state.currentStroke) {
+        drawStroke(state.currentStroke, '#0f172a', 3.2);
+      }
+
+      if (state.lastResult && state.showOverlay && !state.isAnimating) {
+        drawDiagnosticOverlay(state.lastResult);
+      }
+    }
+
+    function updateToolbarState() {
+      undoBtn.disabled = state.strokes.length === 0 || state.isAnimating;
+      redoBtn.disabled = state.redoStack.length === 0 || state.isAnimating;
+      strokeCountText.textContent = `${state.strokes.length}画 · ペン/タッチ対応`;
+    }
+
+    // --- Pointer Events（マウス・タッチ・スタイラス筆圧対応） ---
+    function getPointerPos(e) {
+      const rect = canvas.getBoundingClientRect();
+      return {
+        x: e.clientX - rect.left,
+        y: e.clientY - rect.top,
+        pressure: e.pointerType === 'pen' && e.pressure > 0 ? e.pressure : 0.5,
+      };
+    }
+
+    canvas.addEventListener('pointerdown', (e) => {
+      if (state.isAnimating) stopStrokeOrderAnimation();
+      e.preventDefault();
+      canvas.setPointerCapture(e.pointerId);
+
+      // 新規描画時は以前の診断オーバーレイを一旦オフにする（描きやすさ優先）
+      if (state.lastResult) {
+        state.lastResult = null;
+        overlayToggleWrapper.classList.add('hidden');
+        overlayToggleWrapper.classList.remove('flex');
+      }
+
+      state.isDrawing = true;
+      const pt = getPointerPos(e);
+      state.currentStroke = [pt];
+      state.redoStack = [];
+      renderCanvas();
+    });
+
+    canvas.addEventListener('pointermove', (e) => {
+      if (!state.isDrawing || !state.currentStroke) return;
+      e.preventDefault();
+      const pt = getPointerPos(e);
+      const last = state.currentStroke[state.currentStroke.length - 1];
+      if (Math.hypot(pt.x - last.x, pt.y - last.y) >= 1.2) {
+        // マウス/タッチの場合は速度から自然な筆圧変化をシミュレート
+        if (e.pointerType !== 'pen') {
+          const dist = Math.hypot(pt.x - last.x, pt.y - last.y);
+          pt.pressure = Math.max(0.32, Math.min(0.68, 0.62 - dist * 0.01));
+        }
+        state.currentStroke.push(pt);
+        renderCanvas();
+      }
+    });
+
+    function finishStroke(e) {
+      if (!state.isDrawing) return;
+      state.isDrawing = false;
+      if (state.currentStroke && state.currentStroke.length > 0) {
+        state.strokes.push(state.currentStroke);
+      }
+      state.currentStroke = null;
+      updateToolbarState();
+      renderCanvas();
+    }
+
+    canvas.addEventListener('pointerup', finishStroke);
+    canvas.addEventListener('pointercancel', finishStroke);
+
+    // --- 編集操作（Undo / Redo / Clear） ---
+    undoBtn.addEventListener('click', () => {
+      if (state.strokes.length === 0) return;
+      state.redoStack.push(state.strokes.pop());
+      state.lastResult = null;
+      overlayToggleWrapper.classList.add('hidden');
+      overlayToggleWrapper.classList.remove('flex');
+      updateToolbarState();
+      renderCanvas();
+    });
+
+    redoBtn.addEventListener('click', () => {
+      if (state.redoStack.length === 0) return;
+      state.strokes.push(state.redoStack.pop());
+      updateToolbarState();
+      renderCanvas();
+    });
+
+    clearBtn.addEventListener('click', () => {
+      if (state.isAnimating) stopStrokeOrderAnimation();
+      state.strokes = [];
+      state.redoStack = [];
+      state.currentStroke = null;
+      state.lastResult = null;
+      overlayToggleWrapper.classList.add('hidden');
+      overlayToggleWrapper.classList.remove('flex');
+      updateToolbarState();
+      renderCanvas();
+    });
+
+    // --- モード・向き・補助ガイド切替 ---
+    document.querySelectorAll('.mode-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        state.mode = btn.dataset.mode;
+        document.querySelectorAll('.mode-btn').forEach((b) => {
+          b.className = 'mode-btn px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold transition-all text-slate-600 hover:text-slate-900 whitespace-nowrap';
+        });
+        btn.className = 'mode-btn px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold transition-all bg-white text-indigo-700 shadow-sm whitespace-nowrap';
+        renderCanvas();
+      });
+    });
+
+    document.querySelectorAll('.orient-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        state.orientation = btn.dataset.orient;
+        document.querySelectorAll('.orient-btn').forEach((b) => {
+          b.className = 'orient-btn px-2.5 py-1 rounded-lg text-xs font-semibold text-slate-600 hover:text-slate-900 transition-all';
+        });
+        btn.className = 'orient-btn px-2.5 py-1 rounded-lg text-xs font-semibold bg-white text-slate-800 shadow-sm transition-all';
+        renderCanvas();
+      });
+    });
+
+    document.querySelectorAll('.guide-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        state.guide = btn.dataset.guide;
+        document.querySelectorAll('.guide-btn').forEach((b) => {
+          b.className = 'guide-btn px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200/70 transition-all whitespace-nowrap';
+        });
+        btn.className = 'guide-btn px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-800 text-white transition-all whitespace-nowrap';
+        renderCanvas();
+      });
+    });
+
+    toggleOverlayBtn.addEventListener('click', () => {
+      state.showOverlay = !state.showOverlay;
+      toggleOverlayBtn.querySelector('span').textContent = `添削オーバーレイ: ${state.showOverlay ? 'ON' : 'OFF'}`;
+      toggleOverlayBtn.className = state.showOverlay
+        ? 'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 transition-all'
+        : 'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-100 text-slate-600 border border-slate-200 transition-all';
+      renderCanvas();
+    });
+
+    // =========================================================================
+    // 幾何学的・化学構造的 ベンゼン環認識＆採点エンジン
+    // =========================================================================
+
+    /**
+     * ストロークを等間隔（step pxごと）にリサンプリングする
+     */
+    function resampleStroke(stroke, step = 4) {
+      if (stroke.length <= 1) return stroke.map((p) => ({ x: p.x, y: p.y }));
+      const resampled = [{ x: stroke[0].x, y: stroke[0].y }];
+      let accum = 0;
+      for (let i = 1; i < stroke.length; i++) {
+        let p1 = stroke[i - 1];
+        let p2 = stroke[i];
+        let segLen = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+        if (segLen === 0) continue;
+        while (accum + segLen >= step) {
+          const t = (step - accum) / segLen;
+          const nx = p1.x + t * (p2.x - p1.x);
+          const ny = p1.y + t * (p2.y - p1.y);
+          resampled.push({ x: nx, y: ny });
+          p1 = { x: nx, y: ny };
+          segLen = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+          accum = 0;
+        }
+        accum += segLen;
+      }
+      const last = stroke[stroke.length - 1];
+      if (Math.hypot(last.x - resampled[resampled.length - 1].x, last.y - resampled[resampled.length - 1].y) > 1) {
+        resampled.push({ x: last.x, y: last.y });
+      }
+      return resampled;
+    }
+
+    /**
+     * 2D点群の凸包（Monotone Chain法）を計算
+     */
+    function computeConvexHull(points) {
+      if (points.length < 3) return points.slice();
+      const sorted = points.slice().sort((a, b) => (a.x === b.x ? a.y - b.y : a.x - b.x));
+      const cross = (o, a, b) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+      const lower = [];
+      for (const p of sorted) {
+        while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) {
+          lower.pop();
+        }
+        lower.push(p);
+      }
+      const upper = [];
+      for (let i = sorted.length - 1; i >= 0; i--) {
+        const p = sorted[i];
+        while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) {
+          upper.pop();
+        }
+        upper.push(p);
+      }
+      upper.pop();
+      lower.pop();
+      return lower.concat(upper);
+    }
+
+    /**
+     * 点から線分への最短距離
+     */
+    function pointToSegmentDist(p, a, b) {
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const lenSq = dx * dx + dy * dy;
+      if (lenSq === 0) return Math.hypot(p.x - a.x, p.y - a.y);
+      let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / lenSq;
+      t = Math.max(0, Math.min(1, t));
+      return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
+    }
+
+    /**
+     * 凸包の境界までの最短距離
+     */
+    function distToPolygonBoundary(p, poly) {
+      let minDist = Infinity;
+      for (let i = 0; i < poly.length; i++) {
+        const a = poly[i];
+        const b = poly[(i + 1) % poly.length];
+        const d = pointToSegmentDist(p, a, b);
+        if (d < minDist) minDist = d;
+      }
+      return minDist;
+    }
+
+    /**
+     * Ramer-Douglas-Peucker法による折れ線近似（角候補の抽出）
+     */
+    function rdpSimplify(points, epsilon) {
+      if (points.length <= 2) return points.slice();
+      let maxDist = 0;
+      let index = 0;
+      const start = points[0];
+      const end = points[points.length - 1];
+      for (let i = 1; i < points.length - 1; i++) {
+        const d = pointToSegmentDist(points[i], start, end);
+        if (d > maxDist) {
+          maxDist = d;
+          index = i;
+        }
+      }
+      if (maxDist > epsilon) {
+        const left = rdpSimplify(points.slice(0, index + 1), epsilon);
+        const right = rdpSimplify(points.slice(index), epsilon);
+        return left.slice(0, -1).concat(right);
+      }
+      return [start, end];
+    }
+
+    /**
+     * 角度差（-PI 〜 +PI）
+     */
+    function normalizeAngle(rad) {
+      while (rad > Math.PI) rad -= 2 * Math.PI;
+      while (rad < -Math.PI) rad += 2 * Math.PI;
+      return rad;
+    }
+
+    /**
+     * 無向線分同士の角度差（0 〜 PI/2）
+     */
+    function lineAngleDiff(a1, a2) {
+      let d = Math.abs(normalizeAngle(a1 - a2));
+      if (d > Math.PI / 2) d = Math.PI - d;
+      return d;
+    }
+
+    /**
+     * 2辺の端点から内側の二重結合ガイド線分を計算
+     */
+    function computeInnerBondSegment(p1, p2, center, insetDist, lengthRatio = 0.72) {
+      const mx = (p1.x + p2.x) / 2;
+      const my = (p1.y + p2.y) / 2;
+      const dx = p2.x - p1.x;
+      const dy = p2.y - p1.y;
+      const len = Math.hypot(dx, dy) || 1;
+      const ux = dx / len;
+      const uy = dy / len;
+
+      // 内側向きの法線ベクトル
+      let nx = -uy;
+      let ny = ux;
+      if (nx * (center.x - mx) + ny * (center.y - my) < 0) {
+        nx = -nx;
+        ny = -ny;
+      }
+
+      const imx = mx + nx * insetDist;
+      const imy = my + ny * insetDist;
+      const halfL = (len * lengthRatio) / 2;
+
+      return {
+        p1: { x: imx - ux * halfL, y: imy - uy * halfL },
+        p2: { x: imx + ux * halfL, y: imy + uy * halfL },
+      };
+    }
+
+    /**
+     * ストローク点群に主成分分析（PCA）で直線フィット
+     */
+    function fitLinePCA(pts) {
+      const n = pts.length;
+      let mx = 0, my = 0;
+      pts.forEach((p) => { mx += p.x; my += p.y; });
+      mx /= n;
+      my /= n;
+
+      let sxx = 0, syy = 0, sxy = 0;
+      pts.forEach((p) => {
+        const dx = p.x - mx;
+        const dy = p.y - my;
+        sxx += dx * dx;
+        syy += dy * dy;
+        sxy += dx * dy;
+      });
+
+      const trace = sxx + syy;
+      const det = sxx * syy - sxy * sxy;
+      const disc = Math.sqrt(Math.max(0, (trace * trace) / 4 - det));
+      const l1 = trace / 2 + disc; // 最大固有値
+      const l2 = Math.max(0, trace / 2 - disc); // 最小固有値
+
+      const angle = 0.5 * Math.atan2(2 * sxy, sxx - syy);
+      const ux = Math.cos(angle);
+      const uy = Math.sin(angle);
+
+      let minProj = Infinity, maxProj = -Infinity;
+      pts.forEach((p) => {
+        const proj = (p.x - mx) * ux + (p.y - my) * uy;
+        if (proj < minProj) minProj = proj;
+        if (proj > maxProj) maxProj = proj;
+      });
+
+      return {
+        midpoint: { x: mx, y: my },
+        angle,
+        length: maxProj - minProj,
+        p1: { x: mx + ux * minProj, y: my + uy * minProj },
+        p2: { x: mx + ux * maxProj, y: my + uy * maxProj },
+        linearity: l1 > 0 ? 1 - Math.sqrt(l2 / l1) : 1,
+      };
+    }
+
+    /**
+     * 2つの線分 (a1-a2) と (b1-b2) の交差判定
+     */
+    function segmentsIntersect(a1, a2, b1, b2) {
+      const ccw = (p1, p2, p3) => (p3.y - p1.y) * (p2.x - p1.x) > (p2.y - p1.y) * (p3.x - p1.x);
+      return ccw(a1, b1, b2) !== ccw(a2, b1, b2) && ccw(a1, a2, b1) !== ccw(a1, a2, b2);
+    }
+
+    /**
+     * メイン解析＆採点関数
+     */
+    function evaluateBenzeneDrawing(rawStrokes, requestedMode) {
+      // 1. リサンプリングと基本フィルタリング
+      const strokes = rawStrokes
+        .map((st) => resampleStroke(st, 4))
+        .filter((st) => st.length >= 2);
+
+      const allPoints = strokes.flat();
+      if (allPoints.length < 15) {
+        return { error: '描かれた線が短すぎます。もう少し大きくベンゼン環を描いてください。' };
+      }
+
+      // 全体の凸包と概算サイズ
+      const hull = computeConvexHull(allPoints);
+      let hullCx = 0, hullCy = 0;
+      hull.forEach((p) => { hullCx += p.x; hullCy += p.y; });
+      hullCx /= hull.length;
+      hullCy /= hull.length;
+
+      let approxR = 0;
+      hull.forEach((p) => { approxR += Math.hypot(p.x - hullCx, p.y - hullCy); });
+      approxR /= hull.length;
+
+      if (approxR < 25) {
+        return { error: '図形が小さすぎます。キャンバスの中央に大きく描いてください。' };
+      }
+
+      // 2. 外周ストロークと内部構造ストロークの分離
+      // 凸包の境界から一定の割合以上内側にあるストロークを「内部ストローク」と判定
+      const outerStrokes = [];
+      const innerStrokes = [];
+
+      strokes.forEach((st) => {
+        let insideCount = 0;
+        let maxR = 0;
+        st.forEach((p) => {
+          const dBound = distToPolygonBoundary(p, hull);
+          const r = Math.hypot(p.x - hullCx, p.y - hullCy);
+          if (r > maxR) maxR = r;
+          if (dBound > approxR * 0.135) insideCount++;
+        });
+        const insideRatio = insideCount / st.length;
+        if (strokes.length > 1 && insideRatio >= 0.72 && maxR < approxR * 0.90) {
+          innerStrokes.push(st);
+        } else {
+          outerStrokes.push(st);
+        }
+      });
+
+      const outerPoints = outerStrokes.flat();
+      if (outerPoints.length < 12) {
+        return { error: '外周の六角形が正しく認識できませんでした。' };
+      }
+
+      // 3. 外周の重心と向き（縦型 vs 横型）・全体傾きの検出
+      let cx = 0, cy = 0;
+      outerPoints.forEach((p) => { cx += p.x; cy += p.y; });
+      cx /= outerPoints.length;
+      cy /= outerPoints.length;
+
+      // 6次フーリエ調和解析（放射距離 cos(6θ) と接線方向 cos(6φ)）で縦型・横型と傾きを精密検出
+      let cos6Sum = 0;
+      let sin6Sum = 0;
+      outerPoints.forEach((p) => {
+        const dx = p.x - cx;
+        const dy = p.y - cy;
+        const r = Math.hypot(dx, dy);
+        const theta = Math.atan2(dy, dx);
+        cos6Sum += r * Math.cos(6 * theta);
+        sin6Sum += r * Math.sin(6 * theta);
+      });
+
+      // cos6Sum > 0 なら 0°, 60°, 120°... に頂点（横型）
+      // cos6Sum < 0 なら 30°, 90°, 150°... に頂点（縦型）
+      const detectedOrient = cos6Sum >= 0 ? 'horizontal' : 'vertical';
+      const baseAngle = detectedOrient === 'vertical' ? -Math.PI / 2 : 0;
+
+      // 全体回転ズレ角（ラジアン、-30°〜+30°）
+      const phase6 = Math.atan2(sin6Sum, cos6Sum);
+      const targetPhase = detectedOrient === 'vertical' ? Math.PI : 0;
+      const globalTiltRad = normalizeAngle(phase6 - targetPhase) / 6;
+
+      // 4. 6つの頂点の特定（角度セクター分割 ＋ 端点・RDPコーナー統合）
+      const cornerCandidates = [];
+      const openEndpoints = [];
+
+      outerStrokes.forEach((st) => {
+        const simplified = rdpSimplify(st, approxR * 0.08);
+        for (let i = 1; i < simplified.length - 1; i++) {
+          cornerCandidates.push(simplified[i]);
+        }
+        const s0 = st[0];
+        const s1 = st[st.length - 1];
+        if (Math.hypot(s0.x - s1.x, s0.y - s1.y) > 18) {
+          openEndpoints.push(s0, s1);
+        } else {
+          // 閉じたストロークの始点終点もコーナー候補に加える
+          cornerCandidates.push({ x: (s0.x + s1.x) / 2, y: (s0.y + s1.y) / 2 });
+        }
+      });
+
+      const detectedVertices = [];
+      const vertexQualities = []; // 各頂点の隙間・突き抜け情報
+      const issueMarkers = [];
+
+      for (let k = 0; k < 6; k++) {
+        const sectorAngle = normalizeAngle(baseAngle + globalTiltRad + (k * Math.PI) / 3);
+        const ux = Math.cos(sectorAngle);
+        const uy = Math.sin(sectorAngle);
+
+        // このセクター（±28°以内）に入る外周点群
+        const sectorPts = outerPoints.filter((p) => {
+          const ang = Math.atan2(p.y - cy, p.x - cx);
+          return Math.abs(normalizeAngle(ang - sectorAngle)) <= (28 * Math.PI) / 180;
+        });
+
+        // このセクター内のストローク端点
+        const sectorEnds = openEndpoints.filter((p) => {
+          const ang = Math.atan2(p.y - cy, p.x - cx);
+          return Math.abs(normalizeAngle(ang - sectorAngle)) <= (26 * Math.PI) / 180;
+        });
+
+        // このセクター内のRDPコーナー候補
+        const sectorCorners = cornerCandidates.filter((p) => {
+          const ang = Math.atan2(p.y - cy, p.x - cx);
+          return Math.abs(normalizeAngle(ang - sectorAngle)) <= (24 * Math.PI) / 180;
+        });
+
+        let vx, vy;
+        let gapDist = 0;
+
+        if (sectorEnds.length >= 2) {
+          // 2本のストロークがこの角で出会っている場合（パーツ分け書き）
+          // 最も外側に近い2つの端点ペアを採用
+          sectorEnds.sort((a, b) => ((b.x - cx) * ux + (b.y - cy) * uy) - ((a.x - cx) * ux + (a.y - cy) * uy));
+          const e1 = sectorEnds[0];
+          const e2 = sectorEnds[1];
+          vx = (e1.x + e2.x) / 2;
+          vy = (e1.y + e2.y) / 2;
+          gapDist = Math.hypot(e1.x - e2.x, e1.y - e2.y);
+        } else if (sectorCorners.length > 0) {
+          // RDPコーナーのうち頂点方向への射影が最大の点
+          sectorCorners.sort((a, b) => ((b.x - cx) * ux + (b.y - cy) * uy) - ((a.x - cx) * ux + (a.y - cy) * uy));
+          vx = sectorCorners[0].x;
+          vy = sectorCorners[0].y;
+        } else if (sectorPts.length > 0) {
+          // 頂点方向 (ux, uy) への射影が最大の点
+          let bestProj = -Infinity;
+          let bestP = sectorPts[0];
+          sectorPts.forEach((p) => {
+            const proj = (p.x - cx) * ux + (p.y - cy) * uy;
+            if (proj > bestProj) {
+              bestProj = proj;
+              bestP = p;
+            }
+          });
+          vx = bestP.x;
+          vy = bestP.y;
+        } else {
+          // フォールバック
+          vx = cx + approxR * ux;
+          vy = cy + approxR * uy;
+        }
+
+        detectedVertices.push({ x: vx, y: vy });
+        vertexQualities.push({ gapDist, endCount: sectorEnds.length });
+      }
+
+      // 頂点重心を再計算し、理想正六角形をフィッティング
+      let vcx = 0, vcy = 0;
+      detectedVertices.forEach((v) => { vcx += v.x; vcy += v.y; });
+      vcx /= 6;
+      vcy /= 6;
+
+      let idealR = 0;
+      detectedVertices.forEach((v) => { idealR += Math.hypot(v.x - vcx, v.y - vcy); });
+      idealR /= 6;
+
+      // 理想正六角形（基準の縦型/横型に完全に水平・垂直に合わせたもの）
+      const idealVertices = [];
+      for (let k = 0; k < 6; k++) {
+        const ang = baseAngle + (k * Math.PI) / 3;
+        idealVertices.push({
+          x: vcx + idealR * Math.cos(ang),
+          y: vcy + idealR * Math.sin(ang),
+        });
+      }
+
+      // =====================================================================
+      // 採点項目 1: 正六角形の対称性・辺の長さの均一性（25点満点）
+      // =====================================================================
+      const sideLengths = [];
+      const sideAngles = [];
+      for (let k = 0; k < 6; k++) {
+        const a = detectedVertices[k];
+        const b = detectedVertices[(k + 1) % 6];
+        sideLengths.push(Math.hypot(b.x - a.x, b.y - a.y));
+        sideAngles.push(Math.atan2(b.y - a.y, b.x - a.x));
+      }
+      const meanSide = sideLengths.reduce((s, l) => s + l, 0) / 6;
+      const sideStd = Math.sqrt(sideLengths.reduce((s, l) => s + Math.pow(l - meanSide, 2), 0) / 6);
+      const sideCV = sideStd / (meanSide || 1); // 変動係数（理想 0）
+
+      // 対辺の平行度（(0,3), (1,4), (2,5)）
+      let oppParallelErrDeg = 0;
+      for (let k = 0; k < 3; k++) {
+        oppParallelErrDeg += (lineAngleDiff(sideAngles[k], sideAngles[k + 3]) * 180) / Math.PI;
+      }
+      oppParallelErrDeg /= 3;
+
+      // 理想頂点からの位置誤差
+      const radialErrs = detectedVertices.map((v, k) => {
+        const r = Math.hypot(v.x - vcx, v.y - vcy);
+        return Math.abs(r - idealR) / (idealR || 1);
+      });
+      const meanRadialErr = radialErrs.reduce((s, e) => s + e, 0) / 6;
+
+      let symScore = 25 - sideCV * 68 - oppParallelErrDeg * 0.45 - meanRadialErr * 35;
+      symScore = Math.max(0, Math.min(25, Math.round(symScore * 10) / 10));
+
+      // =====================================================================
+      // 採点項目 2: 内角の正確さ（20点満点・理想 120°）
+      // =====================================================================
+      const vertexAngles = [];
+      for (let k = 0; k < 6; k++) {
+        const prev = detectedVertices[(k + 5) % 6];
+        const curr = detectedVertices[k];
+        const next = detectedVertices[(k + 1) % 6];
+        const v1x = prev.x - curr.x, v1y = prev.y - curr.y;
+        const v2x = next.x - curr.x, v2y = next.y - curr.y;
+        const dot = v1x * v2x + v1y * v2y;
+        const mag = (Math.hypot(v1x, v1y) * Math.hypot(v2x, v2y)) || 1;
+        const cosVal = Math.max(-1, Math.min(1, dot / mag));
+        const deg = (Math.acos(cosVal) * 180) / Math.PI;
+        vertexAngles.push(deg);
+      }
+
+      const angleErrors = vertexAngles.map((a) => Math.abs(a - 120));
+      const meanAngleErr = angleErrors.reduce((s, e) => s + e, 0) / 6;
+      const maxAngleErr = Math.max(...angleErrors);
+
+      let angScore = 20 - meanAngleErr * 1.15 - Math.max(0, maxAngleErr - 10) * 0.35;
+      angScore = Math.max(0, Math.min(20, Math.round(angScore * 10) / 10));
+
+      // =====================================================================
+      // 採点項目 3: 傾き・水平垂直の姿勢（15点満点）
+      // =====================================================================
+      const globalTiltDeg = (globalTiltRad * 180) / Math.PI;
+      // 縦型なら左右の辺（k=1, k=4）、横型なら上下の辺（k=0, k=3）の垂直・水平ズレもチェック
+      let keyEdgeTiltDeg = Math.abs(globalTiltDeg);
+      let leftPillarTilt = 0;
+      let rightPillarTilt = 0;
+
+      if (detectedOrient === 'vertical') {
+        // k=1 が右縦線（下向き +90°）、k=4 が左縦線（上向き -90°）
+        const rightAng = (sideAngles[1] * 180) / Math.PI; // 理想 +90°
+        const leftAng = (sideAngles[4] * 180) / Math.PI;  // 理想 -90°
+        rightPillarTilt = rightAng - 90;
+        leftPillarTilt = normalizeAngle(((leftAng + 90) * Math.PI) / 180) * (180 / Math.PI);
+        keyEdgeTiltDeg = (Math.abs(rightPillarTilt) + Math.abs(leftPillarTilt)) / 2;
+      } else {
+        // 横型: k=0 が上辺（右向き 0°）、k=3 が下辺（左向き ±180°）
+        const topAng = (sideAngles[0] * 180) / Math.PI;
+        const botAng = normalizeAngle(sideAngles[3] - Math.PI) * (180 / Math.PI);
+        keyEdgeTiltDeg = (Math.abs(topAng) + Math.abs(botAng)) / 2;
+      }
+
+      const effectiveTilt = Math.max(Math.abs(globalTiltDeg), keyEdgeTiltDeg * 0.85);
+      let tiltScore = 15 - Math.max(0, effectiveTilt - 1.0) * 1.15;
+      tiltScore = Math.max(0, Math.min(15, Math.round(tiltScore * 10) / 10));
+
+      // =====================================================================
+      // 採点項目 4: 角の閉じ具合・線の丁寧さ（15点満点）
+      // =====================================================================
+      // (a) 頂点の隙間チェック
+      let totalGapRatio = 0;
+      vertexQualities.forEach((vq, idx) => {
+        const ratio = vq.gapDist / (idealR || 1);
+        totalGapRatio += ratio;
+        if (ratio > 0.14) {
+          issueMarkers.push({
+            x: detectedVertices[idx].x,
+            y: detectedVertices[idx].y,
+            r: 16,
+            label: '角の隙間',
+          });
+        }
+      });
+
+      // (b) 線の突き抜け（オーバーシュート）チェック：外周ストロークの端点が中心から過剰に飛び出していないか
+      let overshootCount = 0;
+      openEndpoints.forEach((ep) => {
+        // 最も近い頂点を探す
+        let minVDist = Infinity;
+        let nearestV = detectedVertices[0];
+        detectedVertices.forEach((v) => {
+          const d = Math.hypot(ep.x - v.x, ep.y - v.y);
+          if (d < minVDist) {
+            minVDist = d;
+            nearestV = v;
+          }
+        });
+        const epR = Math.hypot(ep.x - vcx, ep.y - vcy);
+        const vR = Math.hypot(nearestV.x - vcx, nearestV.y - vcy);
+        if (minVDist > idealR * 0.13 && epR > vR + idealR * 0.08) {
+          overshootCount++;
+          issueMarkers.push({
+            x: ep.x,
+            y: ep.y,
+            r: 14,
+            label: '突き抜け',
+          });
+        }
+      });
+
+      // (c) 線の真っ直ぐさ（各辺からのふくらみ・ブレ・丸まり検出）
+      let chordDevSum = 0;
+      outerPoints.forEach((p) => {
+        let minEdgeDist = Infinity;
+        for (let k = 0; k < 6; k++) {
+          const d = pointToSegmentDist(p, detectedVertices[k], detectedVertices[(k + 1) % 6]);
+          if (d < minEdgeDist) minEdgeDist = d;
+        }
+        chordDevSum += minEdgeDist;
+      });
+      const meanChordDevRatio = chordDevSum / outerPoints.length / (idealR || 1);
+
+      let neatScore =
+        15 -
+        totalGapRatio * 18 -
+        overshootCount * 2.2 -
+        Math.max(0, meanChordDevRatio - 0.025) * 140;
+      neatScore = Math.max(0, Math.min(15, Math.round(neatScore * 10) / 10));
+
+      // =====================================================================
+      // 採点項目 5: 内部構造の正確さ（25点満点）
+      // =====================================================================
+      // モードの確定（auto時は描画内容から自動判定）
+      let effectiveMode = requestedMode;
+      if (effectiveMode === 'auto') {
+        if (innerStrokes.length === 0) {
+          effectiveMode = 'skeleton';
+        } else if (innerStrokes.length === 1) {
+          const st = innerStrokes[0];
+          const endGap = Math.hypot(st[0].x - st[st.length - 1].x, st[0].y - st[st.length - 1].y);
+          const fit = fitLinePCA(st);
+          // 閉じているか、曲線性が強い場合は円表記と判定
+          if (endGap < idealR * 0.45 || fit.linearity < 0.72) {
+            effectiveMode = 'circle';
+          } else {
+            effectiveMode = 'kekule';
+          }
+        } else {
+          effectiveMode = 'kekule';
+        }
+      }
+
+      let innerScore = 25;
+      const innerNotes = [];
+      let innerAnalysis = { type: effectiveMode };
+
+      if (effectiveMode === 'skeleton') {
+        if (innerStrokes.length > 0) {
+          innerScore = Math.max(10, 25 - innerStrokes.length * 5);
+          innerNotes.push({
+            type: 'warn',
+            text: `骨格練習モードですが、内側に${innerStrokes.length}本の線が入っています。`,
+          });
+        } else {
+          // 六角形自体の完成度に連動
+          const hexRatio = (symScore + angScore + tiltScore + neatScore) / 75;
+          innerScore = Math.round(25 * hexRatio * 10) / 10;
+          innerNotes.push({
+            type: 'good',
+            text: '骨格（正六角形）練習モードとして採点しました。次はケクレ構造（二重線3本）にも挑戦してみましょう！',
+          });
+        }
+      } else if (effectiveMode === 'kekule') {
+        // ケクレ構造：内側に3本の二重結合が交互・平行に配置されているか
+        const count = innerStrokes.length;
+        // 理想の二重結合3本（交互配置）を算出
+        const idealBondSet = detectedOrient === 'vertical' ? [0, 2, 4] : [1, 3, 5];
+        innerAnalysis.idealBonds = idealBondSet.map((edgeIdx) =>
+          computeInnerBondSegment(
+            idealVertices[edgeIdx],
+            idealVertices[(edgeIdx + 1) % 6],
+            { x: vcx, y: vcy },
+            idealR * 0.21,
+            0.68
+          )
+        );
+
+        if (count === 0) {
+          innerScore = 0;
+          innerNotes.push({
+            type: 'error',
+            text: '内側の二重結合（3本）が描かれていません。1つおきの辺に平行な短い線を3本入れましょう。',
+          });
+        } else {
+          let penalty = 0;
+          if (count !== 3) {
+            penalty += Math.abs(count - 3) * 7.5;
+            innerNotes.push({
+              type: 'error',
+              text: `内側の二重結合が${count}本になっています（ベンゼン環は3本必要です）。`,
+            });
+          }
+
+          const mappedEdges = [];
+          let parallelErrSum = 0;
+          let lengthErrCount = 0;
+          let insetErrCount = 0;
+
+          innerStrokes.forEach((st) => {
+            const fit = fitLinePCA(st);
+            if (fit.linearity < 0.82) {
+              penalty += 2.5;
+            }
+
+            // 最も近い外周辺を特定
+            let bestEdge = 0;
+            let minEdgeDist = Infinity;
+            for (let k = 0; k < 6; k++) {
+              const d = pointToSegmentDist(fit.midpoint, detectedVertices[k], detectedVertices[(k + 1) % 6]);
+              if (d < minEdgeDist) {
+                minEdgeDist = d;
+                bestEdge = k;
+              }
+            }
+            mappedEdges.push(bestEdge);
+
+            // 平行度チェック
+            const pErrDeg = (lineAngleDiff(fit.angle, sideAngles[bestEdge]) * 180) / Math.PI;
+            parallelErrSum += pErrDeg;
+            if (pErrDeg > 9) {
+              issueMarkers.push({
+                x: fit.midpoint.x,
+                y: fit.midpoint.y,
+                r: 15,
+                label: `傾き ${Math.round(pErrDeg)}°`,
+              });
+            }
+
+            // 長さ比チェック（理想: 外辺の 50%〜85%）
+            const lenRatio = fit.length / (sideLengths[bestEdge] || 1);
+            if (lenRatio < 0.42 || lenRatio > 0.94) {
+              lengthErrCount++;
+              issueMarkers.push({
+                x: fit.midpoint.x,
+                y: fit.midpoint.y,
+                r: 15,
+                label: lenRatio < 0.42 ? '短すぎ' : '長すぎ',
+              });
+            }
+
+            // 外辺との距離（余白）チェック（理想: idealR の 0.11 〜 0.34）
+            const insetRatio = minEdgeDist / (idealR || 1);
+            if (insetRatio < 0.09 || insetRatio > 0.38) {
+              insetErrCount++;
+              issueMarkers.push({
+                x: fit.midpoint.x,
+                y: fit.midpoint.y,
+                r: 15,
+                label: insetRatio < 0.09 ? '外枠に近い' : '中央寄り',
+              });
+            }
+          });
+
+          // 交互（共役）配置チェック
+          const uniqueEdges = [...new Set(mappedEdges)];
+          let isAlternatingError = false;
+          if (uniqueEdges.length < mappedEdges.length) {
+            isAlternatingError = true;
+            penalty += 8;
+            innerNotes.push({
+              type: 'error',
+              text: '同じ辺の近くに複数の二重線が集まっています。別の辺へ離して配置しましょう。',
+            });
+          } else if (uniqueEdges.length >= 2) {
+            for (let i = 0; i < uniqueEdges.length; i++) {
+              for (let j = i + 1; j < uniqueEdges.length; j++) {
+                const diff = Math.abs(uniqueEdges[i] - uniqueEdges[j]);
+                if (diff === 1 || diff === 5) {
+                  isAlternatingError = true;
+                }
+              }
+            }
+            if (isAlternatingError) {
+              penalty += 8.5;
+              innerNotes.push({
+                type: 'error',
+                text: '隣り合う辺に二重結合があります！ベンゼン環は二重結合と単結合が「1つおき（交互）」に並びます。',
+              });
+            }
+          }
+
+          const avgParallelErr = parallelErrSum / count;
+          penalty += Math.max(0, avgParallelErr - 3) * 0.75;
+          penalty += lengthErrCount * 2.5;
+          penalty += insetErrCount * 2.5;
+
+          innerScore = Math.max(0, Math.min(25, Math.round((25 - penalty) * 10) / 10));
+
+          if (!isAlternatingError && count === 3 && avgParallelErr <= 7 && lengthErrCount === 0 && insetErrCount === 0) {
+            innerNotes.push({
+              type: 'good',
+              text: '3本の二重結合が1つおきにバランスよく平行配置されています！',
+            });
+          } else {
+            if (avgParallelErr > 7) {
+              innerNotes.push({
+                type: 'warn',
+                text: `内側の二重線が外周の辺と少し平行からズレています（平均 ${avgParallelErr.toFixed(1)}° ズレ）。`,
+              });
+            }
+            if (lengthErrCount > 0) {
+              innerNotes.push({
+                type: 'warn',
+                text: '二重線の長さは、外側の1辺の「6〜7割程度」にすると美しく見えます。',
+              });
+            }
+            if (insetErrCount > 0) {
+              innerNotes.push({
+                type: 'warn',
+                text: '二重線が外枠にくっつきすぎているか、中央に寄りすぎています。適度な余白を空けましょう。',
+              });
+            }
+          }
+        }
+      } else if (effectiveMode === 'circle') {
+        // 円表記：内側の円（○）の評価
+        innerAnalysis.idealRadius = idealR * 0.56;
+        if (innerStrokes.length === 0) {
+          innerScore = 0;
+          innerNotes.push({
+            type: 'error',
+            text: '内側の円（○）が描かれていません。六角形の中央に一回り小さな円を描きましょう。',
+          });
+        } else {
+          const circlePts = innerStrokes.flat();
+          let ccx = 0, ccy = 0;
+          circlePts.forEach((p) => { ccx += p.x; ccy += p.y; });
+          ccx /= circlePts.length;
+          ccy /= circlePts.length;
+
+          const radii = circlePts.map((p) => Math.hypot(p.x - ccx, p.y - ccy));
+          const meanCr = radii.reduce((s, r) => s + r, 0) / radii.length;
+          const stdCr = Math.sqrt(radii.reduce((s, r) => s + Math.pow(r - meanCr, 2), 0) / radii.length);
+          const circularityErr = stdCr / (meanCr || 1);
+          const centerOffsetRatio = Math.hypot(ccx - vcx, ccy - vcy) / (idealR || 1);
+          const sizeRatio = meanCr / (idealR || 1); // 理想 0.45 〜 0.68
+
+          let closureGap = 0;
+          if (innerStrokes.length === 1) {
+            const st = innerStrokes[0];
+            closureGap = Math.hypot(st[0].x - st[st.length - 1].x, st[0].y - st[st.length - 1].y) / (meanCr || 1);
+          }
+
+          let penalty = 0;
+          if (innerStrokes.length > 1) penalty += (innerStrokes.length - 1) * 4;
+          penalty += circularityErr * 45;
+          penalty += Math.max(0, centerOffsetRatio - 0.06) * 45;
+          if (sizeRatio < 0.42 || sizeRatio > 0.72) {
+            penalty += Math.abs(sizeRatio - 0.56) * 35;
+          }
+          if (closureGap > 0.25) {
+            penalty += closureGap * 10;
+            issueMarkers.push({
+              x: innerStrokes[0][0].x,
+              y: innerStrokes[0][0].y,
+              r: 14,
+              label: '円の隙間',
+            });
+          }
+
+          innerScore = Math.max(0, Math.min(25, Math.round((25 - penalty) * 10) / 10));
+
+          if (innerScore >= 20) {
+            innerNotes.push({
+              type: 'good',
+              text: '内側の円が六角形の中央に綺麗な真円で収まっています！',
+            });
+          } else {
+            if (sizeRatio > 0.72) {
+              innerNotes.push({ type: 'warn', text: '内側の円が大きすぎて外枠に近づいています。半径半分程度に小さくしましょう。' });
+            } else if (sizeRatio < 0.42) {
+              innerNotes.push({ type: 'warn', text: '内側の円が少し小さすぎます。六角形の半分くらいの大きさにしましょう。' });
+            }
+            if (circularityErr > 0.12) {
+              innerNotes.push({ type: 'warn', text: '内側の円が少し楕円になっています。上下左右の丸みを均等に意識しましょう。' });
+            }
+            if (centerOffsetRatio > 0.12) {
+              innerNotes.push({ type: 'warn', text: '内側の円の中心が六角形の中心から少しズレています。' });
+            }
+          }
+        }
+      }
+
+      // 合計スコア（100点満点）
+      const rawTotal = symScore + angScore + tiltScore + neatScore + innerScore;
+      const totalScore = Math.max(0, Math.min(100, Math.round(rawTotal)));
+
+      // ランク判定
+      let rank = 'D';
+      let headline = '基本の3ステップを意識して練習しましょう！';
+      if (totalScore >= 90) {
+        rank = 'S';
+        headline = '教科書レベルの美しいベンゼン環です！';
+      } else if (totalScore >= 80) {
+        rank = 'A';
+        headline = '非常に整った見やすい構造式です！';
+      } else if (totalScore >= 65) {
+        rank = 'B';
+        headline = '合格ライン！あと少しの微調整でさらに美しくなります。';
+      } else if (totalScore >= 50) {
+        rank = 'C';
+        headline = '形は捉えています。辺の平行と角度を意識しましょう。';
+      }
+
+      // 総合フィードバック生成
+      const feedbacks = [];
+
+      // 丸くなりすぎチェック
+      if (meanChordDevRatio > 0.075) {
+        feedbacks.push({
+          type: 'error',
+          text: '全体的に角が丸く円に近くなっています。6つの頂点でしっかりペンを止めて直線で結びましょう。',
+        });
+      }
+
+      // 内部構造のフィードバックを優先追加
+      innerNotes.forEach((n) => feedbacks.push(n));
+
+      // 傾き・左右の柱のフィードバック
+      if (detectedOrient === 'vertical' && (Math.abs(leftPillarTilt) > 4.5 || Math.abs(rightPillarTilt) > 4.5)) {
+        if (Math.abs(leftPillarTilt) >= Math.abs(rightPillarTilt)) {
+          const dir = leftPillarTilt > 0 ? '右（内側）' : '左（外側）';
+          feedbacks.push({
+            type: 'warn',
+            text: `左側の縦線が${dir}に ${Math.abs(leftPillarTilt).toFixed(1)}° 傾いています。真下にまっすぐ下ろしましょう。`,
+          });
+        } else {
+          const dir = rightPillarTilt > 0 ? '左（内側）' : '右（外側）';
+          feedbacks.push({
+            type: 'warn',
+            text: `右側の縦線が${dir}に ${Math.abs(rightPillarTilt).toFixed(1)}° 傾いています。左の縦線と平行に揃えましょう。`,
+          });
+        }
+      } else if (Math.abs(globalTiltDeg) > 4.0) {
+        const dir = globalTiltDeg > 0 ? '時計回り' : '反時計回り';
+        feedbacks.push({
+          type: 'warn',
+          text: `ベンゼン環全体が${dir}に ${Math.abs(globalTiltDeg).toFixed(1)}° 傾いています。`,
+        });
+      } else if (tiltScore >= 13.5) {
+        feedbacks.push({
+          type: 'good',
+          text: `姿勢・垂直水平のバランスが優秀です（傾き誤差 ${Math.abs(globalTiltDeg).toFixed(1)}°）。`,
+        });
+      }
+
+      // 内角・辺の長さの均一性
+      if (maxAngleErr > 12) {
+        const worstIdx = angleErrors.indexOf(maxAngleErr);
+        feedbacks.push({
+          type: 'warn',
+          text: `内角が ${Math.round(vertexAngles[worstIdx])}° になっている角があります（理想は120°）。`,
+        });
+      } else if (angScore >= 17) {
+        feedbacks.push({
+          type: 'good',
+          text: `6つの内角がすべて120°に近く、正六角形の角度が正確です（平均誤差 ${meanAngleErr.toFixed(1)}°）。`,
+        });
+      }
+
+      if (sideCV > 0.14) {
+        feedbacks.push({
+          type: 'warn',
+          text: '6辺の長さにバラつきがあります（縦長または横長になっています）。6辺すべて同じ長さを意識しましょう。',
+        });
+      }
+
+      if (neatScore < 11) {
+        feedbacks.push({
+          type: 'warn',
+          text: '頂点の隙間や線の突き抜けが見られます。角の接続点を丁寧に合わせると完成度が上がります。',
+        });
+      }
+
+      return {
+        totalScore,
+        rank,
+        headline,
+        effectiveMode,
+        detectedOrient,
+        globalTiltDeg,
+        scores: {
+          sym: symScore,
+          ang: angScore,
+          tilt: tiltScore,
+          neat: neatScore,
+          inner: innerScore,
+        },
+        center: { x: vcx, y: vcy },
+        idealR,
+        idealVertices,
+        detectedVertices,
+        vertexAngles,
+        issueMarkers,
+        innerAnalysis,
+        feedbacks,
+      };
+    }
+
+    // --- 採点ボタン実行 ---
+    scoreBtn.addEventListener('click', () => {
+      if (state.isAnimating) stopStrokeOrderAnimation();
+      if (state.strokes.length === 0) {
+        showToast('キャンバスにベンゼン環を描いてから採点してください。', 'warn');
+        return;
+      }
+
+      const result = evaluateBenzeneDrawing(state.strokes, state.mode);
+      if (result.error) {
+        showToast(result.error, 'warn');
+        return;
+      }
+
+      state.lastResult = result;
+      state.showOverlay = true;
+      toggleOverlayBtn.querySelector('span').textContent = '添削オーバーレイ: ON';
+      toggleOverlayBtn.className = 'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 transition-all';
+      overlayToggleWrapper.classList.remove('hidden');
+      overlayToggleWrapper.classList.add('flex');
+
+      renderCanvas();
+      displayScoreResult(result);
+      saveHistoryItem(result);
+
+      if (result.totalScore >= 90) {
+        showToast(`素晴らしい！${result.totalScore}点（Sランク）達成です！`, 'success');
+      }
+    });
+
+    // --- スコアカードUI更新 ---
+    function displayScoreResult(res) {
+      emptyScorePanel.classList.add('hidden');
+      resultScorePanel.classList.remove('hidden');
+
+      const modeNames = {
+        kekule: 'ケクレ構造 (二重線)',
+        circle: '円表記 (○)',
+        skeleton: '骨格練習 (正六角形)',
+      };
+      document.getElementById('detectedTypeBadge').textContent = modeNames[res.effectiveMode] || res.effectiveMode;
+      document.getElementById('detectedOrientBadge').textContent = res.detectedOrient === 'vertical' ? '縦型 (頂点上下)' : '横型 (辺上下)';
+      const sign = res.globalTiltDeg >= 0 ? '+' : '';
+      document.getElementById('tiltReadoutBadge').textContent = `傾き ${sign}${res.globalTiltDeg.toFixed(1)}°`;
+
+      document.getElementById('totalScoreNum').textContent = res.totalScore;
+      document.getElementById('rankHeadline').textContent = res.headline;
+      document.getElementById('rankLetter').textContent = res.rank;
+
+      // ランクに応じたカラーテーマ
+      const rankBox = document.getElementById('rankBadgeBox');
+      const rankHeadline = document.getElementById('rankHeadline');
+      if (res.rank === 'S') {
+        rankBox.className = 'w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white flex flex-col items-center justify-center shadow-md shrink-0';
+        rankHeadline.className = 'text-xs sm:text-sm font-semibold text-emerald-600 mt-1';
+      } else if (res.rank === 'A') {
+        rankBox.className = 'w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-gradient-to-br from-indigo-500 to-blue-600 text-white flex flex-col items-center justify-center shadow-md shrink-0';
+        rankHeadline.className = 'text-xs sm:text-sm font-semibold text-indigo-600 mt-1';
+      } else if (res.rank === 'B') {
+        rankBox.className = 'w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-gradient-to-br from-sky-500 to-cyan-600 text-white flex flex-col items-center justify-center shadow-md shrink-0';
+        rankHeadline.className = 'text-xs sm:text-sm font-semibold text-sky-700 mt-1';
+      } else if (res.rank === 'C') {
+        rankBox.className = 'w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-500 text-white flex flex-col items-center justify-center shadow-md shrink-0';
+        rankHeadline.className = 'text-xs sm:text-sm font-semibold text-amber-600 mt-1';
+      } else {
+        rankBox.className = 'w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-gradient-to-br from-rose-500 to-red-600 text-white flex flex-col items-center justify-center shadow-md shrink-0';
+        rankHeadline.className = 'text-xs sm:text-sm font-semibold text-rose-600 mt-1';
+      }
+
+      // 項目別スコアバー更新
+      const innerLabelMap = {
+        kekule: '5. 内部構造の正確さ（二重結合3本）',
+        circle: '5. 内部構造の正確さ（内側の円）',
+        skeleton: '5. 骨格バランス総合評価',
+      };
+      document.getElementById('innerScoreLabel').textContent = innerLabelMap[res.effectiveMode];
+
+      document.getElementById('scSym').textContent = res.scores.sym.toFixed(1).replace(/\.0$/, '');
+      document.getElementById('scAng').textContent = res.scores.ang.toFixed(1).replace(/\.0$/, '');
+      document.getElementById('scTilt').textContent = res.scores.tilt.toFixed(1).replace(/\.0$/, '');
+      document.getElementById('scNeat').textContent = res.scores.neat.toFixed(1).replace(/\.0$/, '');
+      document.getElementById('scInner').textContent = res.scores.inner.toFixed(1).replace(/\.0$/, '');
+
+      requestAnimationFrame(() => {
+        document.getElementById('barSym').style.width = `${(res.scores.sym / 25) * 100}%`;
+        document.getElementById('barAng').style.width = `${(res.scores.ang / 20) * 100}%`;
+        document.getElementById('barTilt').style.width = `${(res.scores.tilt / 15) * 100}%`;
+        document.getElementById('barNeat').style.width = `${(res.scores.neat / 15) * 100}%`;
+        document.getElementById('barInner').style.width = `${(res.scores.inner / 25) * 100}%`;
+      });
+
+      // アドバイス一覧生成
+      const listEl = document.getElementById('feedbackList');
+      listEl.innerHTML = '';
+      res.feedbacks.forEach((fb) => {
+        const li = document.createElement('li');
+        let style = 'bg-slate-50 border-slate-200 text-slate-700';
+        let icon = '•';
+        if (fb.type === 'good') {
+          style = 'bg-emerald-50/70 border-emerald-200/80 text-emerald-900';
+          icon = '✓';
+        } else if (fb.type === 'warn') {
+          style = 'bg-amber-50/80 border-amber-200/80 text-amber-900';
+          icon = '!';
+        } else if (fb.type === 'error') {
+          style = 'bg-rose-50/80 border-rose-200/80 text-rose-900';
+          icon = '×';
+        }
+        li.className = `flex items-start gap-2.5 p-2.5 rounded-xl border text-xs leading-relaxed ${style}`;
+        li.innerHTML = `<span class="font-bold shrink-0 mt-0.5">${icon}</span><span>${fb.text}</span>`;
+        listEl.appendChild(li);
+      });
+    }
+
+    // =========================================================================
+    // 書き順アニメーション再生（崩れない3ステップ＋内部構造）
+    // =========================================================================
+    function buildIdealStrokeSequence(orient, mode) {
+      const cx = canvasWidth / 2;
+      const cy = canvasHeight / 2;
+      const R = Math.min(canvasWidth, canvasHeight) * 0.34;
+      const baseAngle = orient === 'vertical' ? -Math.PI / 2 : 0;
+
+      const v = [];
+      for (let i = 0; i < 6; i++) {
+        const ang = baseAngle + (i * Math.PI) / 3;
+        v.push({ x: cx + R * Math.cos(ang), y: cy + R * Math.sin(ang) });
+      }
+
+      const steps = [];
+      if (orient === 'vertical') {
+        // Step 1: 上の屋根 (v[5] -> v[0] -> v[1])
+        steps.push({
+          badge: 'STEP 1 / 4',
+          text: '上の屋根（^）を左右対称に書きます',
+          pts: [v[5], v[0], v[1]],
+        });
+        // Step 2a: 左の柱 (v[5] -> v[4])
+        steps.push({
+          badge: 'STEP 2 / 4',
+          text: '左右の柱（|　|）を真下に平行に下ろします',
+          pts: [v[5], v[4]],
+        });
+        // Step 2b: 右の柱 (v[1] -> v[2])
+        steps.push({
+          badge: 'STEP 2 / 4',
+          text: '左右の柱（|　|）を同じ長さに揃えます',
+          pts: [v[1], v[2]],
+        });
+        // Step 3: 底の受け皿 (v[4] -> v[3] -> v[2])
+        steps.push({
+          badge: 'STEP 3 / 4',
+          text: '底の受け皿（v）をつないで正六角形を閉じます',
+          pts: [v[4], v[3], v[2]],
+        });
+      } else {
+        // 横型: 上の横線 -> 下の横線 -> 左のくの字 -> 右のくの字
+        steps.push({
+          badge: 'STEP 1 / 4',
+          text: '上の横線（―）を水平に引きます',
+          pts: [v[4], v[5]],
+        });
+        steps.push({
+          badge: 'STEP 2 / 4',
+          text: '下の横線（―）を同じ長さ・平行に引きます',
+          pts: [v[2], v[1]],
+        });
+        steps.push({
+          badge: 'STEP 3 / 4',
+          text: '左右に（< と >）をつけて六角形を閉じます',
+          pts: [v[4], v[3], v[2]],
+        });
+        steps.push({
+          badge: 'STEP 3 / 4',
+          text: '右側の角（>）を対称に閉じます',
+          pts: [v[5], v[0], v[1]],
+        });
+      }
+
+      const effectiveMode = mode === 'auto' ? 'kekule' : mode;
+      if (effectiveMode === 'kekule') {
+        const bondEdges = orient === 'vertical' ? [0, 2, 4] : [1, 3, 5];
+        bondEdges.forEach((eIdx, idx) => {
+          const seg = computeInnerBondSegment(v[eIdx], v[(eIdx + 1) % 6], { x: cx, y: cy }, R * 0.21, 0.68);
+          steps.push({
+            badge: 'STEP 4 / 4',
+            text: `二重結合を1つおきに短め・平行に書きます（${idx + 1}/3本目）`,
+            pts: [seg.p1, seg.p2],
+          });
+        });
+      } else if (effectiveMode === 'circle') {
+        const circlePts = [];
+        const cr = R * 0.56;
+        for (let i = 0; i <= 48; i++) {
+          const a = -Math.PI / 2 + (i / 48) * Math.PI * 2;
+          circlePts.push({ x: cx + cr * Math.cos(a), y: cy + cr * Math.sin(a) });
+        }
+        steps.push({
+          badge: 'STEP 4 / 4',
+          text: '中央に一回り小さな真円（○）を描きます',
+          pts: circlePts,
+        });
+      }
+
+      return steps;
+    }
+
+    function stopStrokeOrderAnimation() {
+      state.isAnimating = false;
+      if (state.animTimer) cancelAnimationFrame(state.animTimer);
+      animBanner.classList.add('hidden');
+      updateToolbarState();
+      renderCanvas();
+    }
+
+    stopAnimBtn.addEventListener('click', stopStrokeOrderAnimation);
+
+    playOrderBtn.addEventListener('click', () => {
+      if (state.isAnimating) {
+        stopStrokeOrderAnimation();
+        return;
+      }
+
+      const steps = buildIdealStrokeSequence(state.orientation, state.mode);
+      state.isAnimating = true;
+      animBanner.classList.remove('hidden');
+      updateToolbarState();
+
+      // 各ステップを細かい点列に補間
+      const denseSteps = steps.map((st) => {
+        const dense = [];
+        for (let i = 1; i < st.pts.length; i++) {
+          const p0 = st.pts[i - 1];
+          const p1 = st.pts[i];
+          const dist = Math.hypot(p1.x - p0.x, p1.y - p0.y);
+          const n = Math.max(8, Math.round(dist / 5));
+          for (let j = 0; j <= n; j++) {
+            const t = j / n;
+            dense.push({ x: p0.x + (p1.x - p0.x) * t, y: p0.y + (p1.y - p0.y) * t });
+          }
+        }
+        return { ...st, dense };
+      });
+
+      let stepIdx = 0;
+      let ptIdx = 0;
+
+      function animFrame() {
+        if (!state.isAnimating) return;
+
+        ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+        drawBackgroundGuide();
+
+        // 完了済みステップを描画
+        for (let s = 0; s < stepIdx; s++) {
+          drawStroke(denseSteps[s].dense, '#4f46e5', 3.6);
+        }
+
+        // 現在進行中のステップを描画
+        const curr = denseSteps[stepIdx];
+        animStepBadge.textContent = curr.badge;
+        animStepText.textContent = curr.text;
+
+        const partial = curr.dense.slice(0, ptIdx + 1);
+        drawStroke(partial, '#10b981', 4.0);
+
+        // ペン先マーカー
+        const tip = partial[partial.length - 1];
+        if (tip) {
+          ctx.save();
+          ctx.fillStyle = '#10b981';
+          ctx.beginPath();
+          ctx.arc(tip.x, tip.y, 6, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = 2;
+          ctx.stroke();
+          ctx.restore();
+        }
+
+        ptIdx += 2;
+        if (ptIdx >= curr.dense.length) {
+          stepIdx++;
+          ptIdx = 0;
+          if (stepIdx >= denseSteps.length) {
+            setTimeout(() => {
+              if (state.isAnimating) stopStrokeOrderAnimation();
+            }, 1300);
+            return;
+          }
+        }
+        state.animTimer = requestAnimationFrame(animFrame);
+      }
+
+      state.animTimer = requestAnimationFrame(animFrame);
+    });
+
+    // --- サンプル描画ボタン（手書き風の自然な揺らぎ付きで生成） ---
+    loadSampleBtn.addEventListener('click', () => {
+      if (state.isAnimating) stopStrokeOrderAnimation();
+      const steps = buildIdealStrokeSequence(state.orientation, state.mode);
+      state.strokes = steps.map((st) => {
+        const pts = [];
+        for (let i = 1; i < st.pts.length; i++) {
+          const p0 = st.pts[i - 1];
+          const p1 = st.pts[i];
+          const n = 14;
+          for (let j = 0; j <= n; j++) {
+            const t = j / n;
+            // わずかな人間らしい手ブレを付加
+            const jitterX = (Math.sin(t * Math.PI * 3 + i) * 1.4);
+            const jitterY = (Math.cos(t * Math.PI * 2 + i) * 1.4);
+            pts.push({
+              x: p0.x + (p1.x - p0.x) * t + jitterX,
+              y: p0.y + (p1.y - p0.y) * t + jitterY,
+              pressure: 0.55,
+            });
+          }
+        }
+        return pts;
+      });
+      state.redoStack = [];
+      updateToolbarState();
+      scoreBtn.click();
+    });
+
+    // =========================================================================
+    // スコア履歴保存（localStorage）
+    // =========================================================================
+    function createMiniThumbnail() {
+      const thumbCanvas = document.createElement('canvas');
+      thumbCanvas.width = 96;
+      thumbCanvas.height = 72;
+      const tctx = thumbCanvas.getContext('2d');
+      tctx.fillStyle = '#ffffff';
+      tctx.fillRect(0, 0, 96, 72);
+
+      const scaleX = 96 / canvasWidth;
+      const scaleY = 72 / canvasHeight;
+      const scale = Math.min(scaleX, scaleY);
+      const ox = (96 - canvasWidth * scale) / 2;
+      const oy = (72 - canvasHeight * scale) / 2;
+
+      tctx.strokeStyle = '#0f172a';
+      tctx.lineWidth = 1.8;
+      tctx.lineCap = 'round';
+      tctx.lineJoin = 'round';
+
+      state.strokes.forEach((st) => {
+        if (st.length < 2) return;
+        tctx.beginPath();
+        st.forEach((p, idx) => {
+          const x = ox + p.x * scale;
+          const y = oy + p.y * scale;
+          if (idx === 0) tctx.moveTo(x, y);
+          else tctx.lineTo(x, y);
+        });
+        tctx.stroke();
+      });
+
+      return thumbCanvas.toDataURL('image/png');
+    }
+
+    function loadHistory() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          state.history = JSON.parse(raw);
+          if (state.history.length > 0) {
+            state.bestScore = Math.max(...state.history.map((h) => h.score));
+          }
+        }
+      } catch (e) {
+        state.history = [];
+      }
+      renderHistory();
+    }
+
+    function saveHistoryItem(res) {
+      const item = {
+        id: Date.now(),
+        score: res.totalScore,
+        rank: res.rank,
+        mode: res.effectiveMode,
+        thumb: createMiniThumbnail(),
+        time: new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }),
+      };
+      state.history.unshift(item);
+      if (state.history.length > 15) state.history.pop();
+      state.bestScore = Math.max(state.bestScore || 0, res.totalScore);
+
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state.history));
+      } catch (e) {
+        // ストレージ容量制限時のフォールバック
+      }
+      renderHistory();
+    }
+
+    function renderHistory() {
+      bestScoreDisplay.textContent = state.bestScore !== null ? state.bestScore : '--';
+
+      if (state.history.length === 0) {
+        historyList.innerHTML = '<p class="text-xs text-slate-400 py-4 text-center w-full">まだ採点履歴がありません。描いて採点してみましょう！</p>';
+        return;
+      }
+
+      historyList.innerHTML = '';
+      const rankColors = {
+        S: 'bg-emerald-500 text-white',
+        A: 'bg-indigo-600 text-white',
+        B: 'bg-sky-500 text-white',
+        C: 'bg-amber-500 text-white',
+        D: 'bg-rose-500 text-white',
+      };
+
+      state.history.forEach((item) => {
+        const card = document.createElement('div');
+        card.className = 'shrink-0 w-24 rounded-xl border border-slate-200 bg-slate-50/70 p-1.5 flex flex-col gap-1';
+        card.innerHTML = `
+          <div class="relative w-full h-14 bg-white rounded-lg border border-slate-100 overflow-hidden flex items-center justify-center">
+            <img src="${item.thumb}" alt="履歴サムネイル" class="w-full h-full object-contain" />
+            <span class="absolute top-1 left-1 px-1.5 py-0.2 rounded text-[10px] font-black ${rankColors[item.rank] || 'bg-slate-600 text-white'}">${item.rank}</span>
+          </div>
+          <div class="flex items-baseline justify-between px-0.5">
+            <span class="text-xs font-extrabold text-slate-800 tabular-nums">${item.score}<span class="text-[10px] font-normal text-slate-400">点</span></span>
+            <span class="text-[10px] text-slate-400">${item.time}</span>
+          </div>
+        `;
+        historyList.appendChild(card);
+      });
+    }
+
+    clearHistoryBtn.addEventListener('click', () => {
+      state.history = [];
+      state.bestScore = null;
+      try {
+        localStorage.removeItem(STORAGE_KEY);
+      } catch (e) {}
+      renderHistory();
+      showToast('採点履歴をクリアしました。', 'info');
+    });
+
+    // --- 初期化 ---
+    window.addEventListener('load', () => {
+      resizeCanvas();
+      loadHistory();
+      updateToolbarState();
+    });
+  </script>
+</body>
+</html>
